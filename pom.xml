@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.acme.coderag</groupId>
+    <artifactId>code-rag-parent</artifactId>
+    <version>0.1.0</version>
+    <packaging>pom</packaging>
+    <name>code-rag</name>
+    <description>Commit-scoped code RAG: an indexer job and a remote MCP server.</description>
+
+    <modules>
+        <module>code-rag-core</module>
+        <module>code-rag-indexer</module>
+        <module>code-rag-mcp</module>
+    </modules>
+
+    <properties>
+        <java.version>25</java.version>
+        <maven.compiler.release>25</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- ==================================================================
+             SINGLE SOURCE OF TRUTH FOR EXTERNAL VERSIONS.
+             All three resolved against Maven Central (Aug 2026).
+
+             langchain4j: the stable line. Its BOM maps the beta-track
+             integration modules (langchain4j-vertex-ai and friends) onto the
+             matching x.y.z-betaN, so never pin a beta version here: bump this
+             one number and the whole set stays aligned.
+             ================================================================== -->
+        <spring-boot.version>4.1.0</spring-boot.version>
+        <spring-ai.version>2.0.0</spring-ai.version>
+        <langchain4j.version>1.19.0</langchain4j.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- MCP protocol layer. Consumed only by code-rag-mcp, and only for
+                 the protocol edge: none of Spring AI's model abstractions are
+                 used anywhere in this repository. -->
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- Retrieval layer: embedding models, the EmbeddingStore contract,
+                 the filter algebra, ContentRetriever and rank fusion. The BOM
+                 aligns the stable core modules with the beta-track integration
+                 modules. -->
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-bom</artifactId>
+                <version>${langchain4j.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>com.acme.coderag</groupId>
+                <artifactId>code-rag-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <version>${spring-boot.version}</version>
+                    <configuration>
+                        <layers>
+                            <enabled>true</enabled>
+                        </layers>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <configuration>
+                        <!-- *IT needs Docker; failsafe owns those -->
+                        <excludes>
+                            <exclude>**/*IT.java</exclude>
+                        </excludes>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>integration-test</goal>
+                                <goal>verify</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>

@@ -1,0 +1,20 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+
+# Local secrets and scratch state
+.env
+*.local.yml
+/local/pgdata/
+
+# OS
+.DS_Store

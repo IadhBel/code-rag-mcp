@@ -1,0 +1,95 @@
+# =============================================================================
+# Reusable indexing workflow for any application repository.
+#
+# Add this to a project's .github/workflows/code-rag.yml:
+#
+#   name: code-rag
+#   on:
+#     push:
+#       branches: [main]
+#   permissions:
+#     id-token: write
+#     contents: read
+#   jobs:
+#     index:
+#       uses: <your-github-user>/code-rag/.github/workflows/code-rag-index.yml@main
+#       with:
+#         repo_slug: <your-github-user>/my-service   # optional
+#       secrets: inherit
+#
+# The job holds no database credentials, no Vertex AI credentials and no
+# long-lived service account key: it authenticates to Google Cloud with a
+# short-lived OIDC token and its only permission is to start a Cloud Run Job
+# execution. All indexing happens inside the VPC.
+#
+# Required repository (or account-level) variables:
+#   CODE_RAG_GCP_PROJECT, CODE_RAG_WIF_PROVIDER, CODE_RAG_SERVICE_ACCOUNT
+# Optional: CODE_RAG_GCP_REGION (default europe-west1), CODE_RAG_JOB_NAME.
+#
+# For a private application repository the code-rag repo must allow access to
+# its workflows (Settings > Actions > General > Access).
+# =============================================================================
+name: code-rag-index
+
+on:
+  workflow_call:
+    inputs:
+      repo_slug:
+        description: "Slug stored with the indexed chunks (defaults to owner/repo)"
+        type: string
+        default: ""
+
+jobs:
+  index:
+    # Only on the default branch: indexing every feature branch would multiply
+    # the corpus and dilute retrieval with code that may never merge.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    # Never block a merge because the search index is briefly stale.
+    continue-on-error: true
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT: ${{ vars.CODE_RAG_GCP_PROJECT }}
+      GCP_REGION: ${{ vars.CODE_RAG_GCP_REGION || 'europe-west1' }}
+      JOB_NAME: ${{ vars.CODE_RAG_JOB_NAME || 'code-rag-indexer' }}
+      WIF_PROVIDER: ${{ vars.CODE_RAG_WIF_PROVIDER }}
+      SERVICE_ACCOUNT: ${{ vars.CODE_RAG_SERVICE_ACCOUNT }}
+      REPO_SLUG: ${{ inputs.repo_slug || github.repository }}
+    steps:
+      - name: Check configuration
+        run: |
+          for required in GCP_PROJECT WIF_PROVIDER SERVICE_ACCOUNT; do
+            if [ -z "${!required}" ]; then
+              echo "CODE_RAG_$required is not set. Configure it as a GitHub Actions variable." >&2
+              exit 1
+            fi
+          done
+
+      # Keyless authentication: the GitHub OIDC token is exchanged for
+      # short-lived Google credentials. No key file exists anywhere.
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+
+      # The exact commit is passed, not the branch: a job that waits in a queue
+      # must still index the revision that triggered it. GITHUB_TOKEN lets the
+      # indexer clone this repository and expires when this job ends.
+      - name: Trigger the indexer
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+          REPO_BRANCH: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          GIT_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$GIT_TOKEN"
+          gcloud run jobs execute "$JOB_NAME" \
+            --region="$GCP_REGION" \
+            --wait \
+            --update-env-vars="^@^REPO_SLUG=$REPO_SLUG@REPO_URL=$REPO_URL@REPO_BRANCH=$REPO_BRANCH@COMMIT_SHA=$COMMIT_SHA@GIT_USERNAME=x-access-token@GIT_TOKEN=$GIT_TOKEN"

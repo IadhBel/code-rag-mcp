@@ -1,0 +1,26 @@
+# Offline development against local/compose.yaml.
+#
+# Uses DETERMINISTIC embeddings: no Google Cloud project, no billable calls, and
+# search results that are meaningless. It exists to exercise the schema, the
+# deduplication logic and the SQL end to end.
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/coderag
+    username: coderag
+    password: coderag
+
+coderag:
+  embedding:
+    provider: DETERMINISTIC
+    dimension: 384
+  job:
+    repo-slug: local/sample
+    clone-url: ${REPO_URL:}
+    branch: main
+    commit-sha: ${COMMIT_SHA:}
+    git-username: ""
+    git-token: ""
+
+logging:
+  level:
+    com.acme.coderag: DEBUG

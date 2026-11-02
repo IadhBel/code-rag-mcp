@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.acme.coderag</groupId>
+        <artifactId>code-rag-parent</artifactId>
+        <version>0.1.0</version>
+    </parent>
+
+    <artifactId>code-rag-core</artifactId>
+    <name>code-rag-core</name>
+    <description>
+        Chunking, embedding identity and the corpus contract shared by the
+        indexer (write side) and the MCP server (read side).
+
+        No Spring Boot, no dependency injection, no auto-configuration: the
+        chunker and the hashes are unit-testable without a container, and
+        neither application inherits the other's runtime concerns.
+
+        Why share instead of duplicating: the writer and the reader must agree
+        byte-for-byte on how text is chunked, hashed and normalised, and must
+        embed with the same model, dimension and task-type convention. If they
+        drift, retrieval degrades silently with no error anywhere.
+    </description>
+
+    <dependencies>
+        <!-- LangChain4j owns embeddings and the store contract. The embedding
+             model lives here rather than in each application on purpose: the
+             indexer and the MCP server must agree on model, dimension and
+             normalisation, and if that diverges similarity scores become
+             meaningless with no error raised anywhere.
+
+             CodeEmbeddingStore implements dev.langchain4j EmbeddingStore over
+             our schema, so both applications (and any future LangChain4j
+             application in the company) can retrieve through the standard
+             EmbeddingStoreContentRetriever with no adapter. -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-vertex-ai</artifactId>
+        </dependency>
+
+        <!-- JdbcTemplate only, for the store's SQL. Not spring-boot-starter-jdbc:
+             no auto-configuration and no DataSource is contributed from here.
+             Each application supplies its own, with its own grants. -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

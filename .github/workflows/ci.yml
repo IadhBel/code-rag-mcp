@@ -1,0 +1,161 @@
+# =============================================================================
+# Pipeline for code-rag itself.
+#
+# Application repositories do not use this file -- they call the reusable
+# workflow .github/workflows/code-rag-index.yml instead, which is a single job.
+# =============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MAVEN_CLI_OPTS: "--batch-mode --errors --show-version --no-transfer-progress"
+  # Set as repository variables (Settings > Secrets and variables > Actions > Variables).
+  GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+  GCP_REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
+  ARTIFACT_REGISTRY: ${{ vars.ARTIFACT_REGISTRY }}   # e.g. europe-west1-docker.pkg.dev/my-project/code-rag
+  WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
+  DEPLOY_SERVICE_ACCOUNT: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
+
+jobs:
+  # ── build ──────────────────────────────────────────────────────────────────
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - run: mvn $MAVEN_CLI_OPTS -DskipTests package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jars
+          path: "*/target/*.jar"
+          retention-days: 1
+
+  # ── test ───────────────────────────────────────────────────────────────────
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - run: mvn $MAVEN_CLI_OPTS test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-reports
+          path: "*/target/surefire-reports/"
+
+  integration-tests:
+    # Testcontainers uses the Docker daemon already present on ubuntu-latest.
+    # The IT that proves deduplication works is the most valuable test here, so
+    # it runs on every pipeline rather than nightly.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - run: mvn $MAVEN_CLI_OPTS verify -DskipUnitTests
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-reports
+          path: "*/target/failsafe-reports/"
+
+  # ── package ────────────────────────────────────────────────────────────────
+  image:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [compile, unit-tests, integration-tests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        module: [code-rag-indexer, code-rag-mcp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+      - run: gcloud auth configure-docker "${ARTIFACT_REGISTRY%%/*}" --quiet
+      - name: Build and push
+        run: |
+          set -euo pipefail
+          IMAGE="$ARTIFACT_REGISTRY/${{ matrix.module }}"
+          docker build -f "${{ matrix.module }}/Dockerfile" -t "$IMAGE:$GITHUB_SHA" -t "$IMAGE:latest" .
+          docker push "$IMAGE:$GITHUB_SHA"
+          docker push "$IMAGE:latest"
+
+  # ── deploy ─────────────────────────────────────────────────────────────────
+  deploy-indexer:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+      # Updating the job definition only. Executions are triggered per commit by
+      # the application repositories, which pass REPO_* as env overrides.
+      - run: |
+          set -euo pipefail
+          gcloud run jobs update code-rag-indexer \
+            --region="$GCP_REGION" \
+            --image="$ARTIFACT_REGISTRY/code-rag-indexer:$GITHUB_SHA" \
+            --task-timeout=30m \
+            --max-retries=1 \
+            --memory=2Gi --cpu=1
+
+  deploy-mcp:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+      # --no-allow-unauthenticated is not optional: the corpus is source code.
+      # Cloud Run IAM is the outer gate, the bearer token the inner one.
+      - run: |
+          set -euo pipefail
+          gcloud run deploy code-rag-mcp \
+            --region="$GCP_REGION" \
+            --image="$ARTIFACT_REGISTRY/code-rag-mcp:$GITHUB_SHA" \
+            --no-allow-unauthenticated \
+            --min-instances=1 --max-instances=5 \
+            --memory=1Gi --cpu=1 \
+            --session-affinity \
+            --set-secrets=DB_PASSWORD=coderag-mcp-db-password:latest,MCP_READ_TOKEN=coderag-mcp-read-token:latest

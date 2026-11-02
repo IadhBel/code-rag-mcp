@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.acme.coderag</groupId>
+        <artifactId>code-rag-parent</artifactId>
+        <version>0.1.0</version>
+    </parent>
+
+    <artifactId>code-rag-indexer</artifactId>
+    <name>code-rag-indexer</name>
+    <description>
+        Write side. A batch job, not a service: it starts, indexes one commit of
+        one repository, writes a report row and exits. Deployed as a Cloud Run Job
+        and triggered by the GitHub Actions workflow.
+
+        It owns the database schema -- Flyway migrations live here and nowhere
+        else. The MCP server is a read-only consumer that validates the schema it
+        finds rather than creating it.
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.acme.coderag</groupId>
+            <artifactId>code-rag-core</artifactId>
+        </dependency>
+
+        <!-- No web starter: this process has no HTTP surface at all, which is one
+             fewer thing to secure and to keep patched. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- Spring Boot 4 split auto-configuration into per-technology modules, so
+             Flyway's lives here rather than in spring-boot-autoconfigure. The starter
+             brings flyway-core with it; the postgresql dialect is separate. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Testcontainers 2.x artifact names: the modules were renamed from
+             `postgresql` / `junit-jupiter` to a `testcontainers-` prefix. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

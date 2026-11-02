@@ -1,0 +1,99 @@
+spring:
+  application:
+    name: code-rag-mcp
+  # Cloud Run injects PORT.
+  threads:
+    virtual:
+      enabled: true
+
+  datasource:
+    url: ${DB_URL}
+    # A role with SELECT and nothing else. The read side cannot damage the index
+    # even if something here is wrong. See docs/GCP-SETUP.md.
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:8}
+      connection-timeout: 10s
+      # Raise pgvector's search breadth on every pooled connection. Needed because
+      # filtered vector queries post-filter inside the HNSW scan, which costs recall
+      # unless the candidate list is widened.
+      connection-init-sql: SET hnsw.ef_search = 120
+  flyway:
+    # The indexer owns the schema. This service validates it at start-up
+    # (see SchemaGuard) and never migrates.
+    enabled: false
+
+  ai:
+    mcp:
+      server:
+        enabled: true
+        name: code-rag
+        version: 0.1.0
+        type: SYNC
+        # STREAMABLE, not SSE: SSE is deprecated in Spring AI 2.x. stdio is not an
+        # option at all here -- Cloud Run does not support it.
+        protocol: STREAMABLE
+        instructions: >
+          Semantic and keyword search over indexed source code. Prefer these tools
+          over reading files. Locate with search_code or find_symbol, understand a
+          file's shape with get_file_outline, then read_lines only the ranges you
+          need. Check list_repositories to confirm the index is at the commit you
+          are working on.
+        capabilities:
+          tool: true
+          resource: false
+          prompt: false
+          completion: false
+        streamable-http:
+          mcp-endpoint: /mcp
+          keep-alive-interval: 30s
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+coderag:
+  security:
+    enabled: ${SECURITY_ENABLED:true}
+    read-token: ${MCP_READ_TOKEN:}
+
+  embedding:
+    provider: ${EMBEDDING_PROVIDER:VERTEX}
+    dimension: ${EMBEDDING_DIMENSION:768}
+    allow-deterministic-index: ${ALLOW_DETERMINISTIC_INDEX:false}
+    vertex:
+      project: ${GCP_PROJECT:}
+      location: ${GCP_LOCATION:europe-west1}
+      model: ${EMBEDDING_MODEL:gemini-embedding-001}
+      # The query side of the asymmetric pair; the indexer uses RETRIEVAL_DOCUMENT.
+      # CODE_RETRIEVAL_QUERY is built for this workload -- prefer it if the model
+      # in use supports it.
+      task-type: ${EMBEDDING_QUERY_TASK:RETRIEVAL_QUERY}
+      max-retries: 3
+
+  search:
+    # Candidates per retriever before fusion. Higher means better recall, slower
+    # query. Fusion itself is LangChain4j's DefaultContentAggregator, so there is
+    # no rank-fusion constant to configure.
+    candidates-per-strategy: ${SEARCH_CANDIDATES:60}
+    default-limit: 8
+    max-limit: 25
+    # Every line here lands in an agent's context window. Keep it tight.
+    snippet-lines: 18
+    max-read-lines: 400
+
+logging:
+  level:
+    com.acme.coderag: INFO

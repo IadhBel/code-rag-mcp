@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.acme.coderag</groupId>
+        <artifactId>code-rag-parent</artifactId>
+        <version>0.1.0</version>
+    </parent>
+
+    <artifactId>code-rag-mcp</artifactId>
+    <name>code-rag-mcp</name>
+    <description>
+        Read side. A remote MCP server over streamable HTTP, wired into the IDE and
+        into Claude Code, exposing retrieval tools over the indexed corpus.
+
+        Read-only by construction: it connects with a PostgreSQL role that has no
+        write grants, and it never runs a migration. Its tools return pointers --
+        paths, line ranges, signatures, bounded snippets -- rather than file dumps,
+        because the entire reason it exists is to stop an agent from re-reading a
+        repository into its context on every prompt.
+
+        The two frameworks divide cleanly. Spring AI is the protocol layer:
+        @McpTool, JSON schema generation from method signatures, streamable
+        HTTP. LangChain4j is the retrieval layer: EmbeddingModel,
+        EmbeddingStore, ContentRetriever and rank fusion. Neither is used for
+        the other's job, and there is no adapter between them -- the tools call
+        a service that speaks LangChain4j types directly.
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.acme.coderag</groupId>
+            <artifactId>code-rag-core</artifactId>
+        </dependency>
+
+        <!-- The RAG package: ContentRetriever, EmbeddingStoreContentRetriever and
+             DefaultContentAggregator, which is the reciprocal rank fusion used to
+             combine the dense and lexical halves. langchain4j-core arrives
+             transitively via code-rag-core. -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- MCP server: @McpTool, automatic JSON schema generation from method
+             signatures, and the streamable-HTTP transport. SSE is deprecated in
+             Spring AI 2.x, so STREAMABLE is the configured protocol. -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Testcontainers 2.x artifact names: the modules were renamed from
+             `postgresql` / `junit-jupiter` to a `testcontainers-` prefix. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

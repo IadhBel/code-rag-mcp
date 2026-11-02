@@ -1,0 +1,20 @@
+# Offline development against local/compose.yaml, paired with the indexer's
+# `local` profile. Both must use the same provider and dimension or SchemaGuard
+# will refuse to start -- which is the intended behaviour.
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/coderag
+    username: coderag
+    password: coderag
+
+coderag:
+  security:
+    enabled: false
+  embedding:
+    provider: DETERMINISTIC
+    dimension: 384
+    allow-deterministic-index: true
+
+logging:
+  level:
+    com.acme.coderag: DEBUG

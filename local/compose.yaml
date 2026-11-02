@@ -1,0 +1,33 @@
+# Local development database.
+#
+#   docker compose -f local/compose.yaml up -d
+#
+# Then run either application with the `local` profile, which uses DETERMINISTIC
+# embeddings so no Google Cloud project is needed:
+#
+#   REPO_URL=https://github.com/acme/example.git COMMIT_SHA=<sha> \
+#     mvn -pl code-rag-indexer spring-boot:run -Dspring-boot.run.profiles=local
+#   mvn -pl code-rag-mcp spring-boot:run -Dspring-boot.run.profiles=local
+#
+# This file is for development only. In Google Cloud the database is Cloud SQL for
+# PostgreSQL with two roles -- see docs/GCP-SETUP.md.
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: coderag-postgres
+    environment:
+      POSTGRES_DB: coderag
+      POSTGRES_USER: coderag
+      POSTGRES_PASSWORD: coderag
+    ports:
+      - "5432:5432"
+    volumes:
+      - coderag-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coderag -d coderag"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  coderag-pgdata:
